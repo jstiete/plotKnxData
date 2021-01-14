@@ -41,9 +41,14 @@ def printHelp():
     print("-t [--title]\t Titel des gesamten Diagramms. (Optional)")
     print("-n [--name]\t Titel der einzelnen Diagramme/Subplots. (Optional)")
     print("-h [--help]\t Zeigt diese Hilfe.\n")
-    print("<Daten_Plot_n>\t Gruppenadressen zu einem Graphen zuordnen.\n\
+    print("Gruppenadressen zu einem Graphen zuordnen:")
+    print("<Daten_Plot_n>\t Diagramme mit gemeinsamen Y-Achsen:\n\
       \t\t Bsp: 1/1/0 1/1/1 1/1/0,1/1/2 ordnet die Gruppenadresse 1/1/0 dem ersten Graphen zu, \n\
-      \t\t 1/1/1 dem zweiten Graphen, der dritte Graph enthält die Gruppenadressen 1/1/1 und 1/1/2.\n")
+      \t\t 1/1/1 dem zweiten Graphen, der dritte Graph enthält die Gruppenadressen 1/1/1 und 1/1/2.")
+    print("<Daten_Plot_n>\t Getrennte Y-Achsen:\n\
+      \t\t Bsp: 1/1/0:1/1/1 1/1/0,1/1/2:1/1/1 erstellt zwei Diagramme mit getrennen Y-Achsen.\n\
+      \t\t Der erste Graph enthält auf der linken Y-Achse die Daten von 1/1/0, auf der rechten Y-Achse die Daten von 1/1/1.\n\
+      \t\t Der zweite Graph enthält auf der linken Y-Achse die Daten von 1/1/0 und 1/1/2, auf der rechten Y-Achse die Daten von 1/1/1")
     print("Ein Export als PNG-Datei kann in der angezeigten Figure erfolgen -> Button \'Save the figure\'.\n\n")
     print("Beispiele:\n\
            plotKnxData.py -i \"C:/My KNX Data.csv\" 1/1/0 oder plotKnxData.py --ifile \"My KNX Data.csv\" 1/1/0 \n\
@@ -223,15 +228,23 @@ if __name__ == '__main__':
     ## Anordnung der Subplots parsen.
 
     # Werte anzeigen anhand von 'Destination Adress'
-    # subplots enthält Liste der Subplots. Jeder Subplot ist ein dict mit den Daten.
+    # subplots enthält Liste der Subplots. Jeder Subplot enhlält eine Liste, mit den getrennten Y-Achsen.
+    # In dieser Liste ist ein dict mit den Daten.
     # Jeder Key im jeweiligen dict repräsentiert einen Datensatz, alle Keys zusammen bilden die Daten für einen Subplot.
-    '''args=["9/0/4", "11/2/9,11/2/0", "0/7/0"]'''
     subplots=[]
-    if args != []:          #args="1/1/2" "1/1/2,1/3/5"
+    if args != []:          #args="1/1/2" "1/1/2,1/3/5:1/1/0"
         try:
             for arg in args: # testen, ob string eine gültige Adresse ist?
+                listOfYAxes=arg.split(':')
+                if(len(listOfYAxes)>2):
+                    #Mehr als 2 Y-Achsen sind nicht möglich. warnen und Liste wieder zusammen-mergen.
+                    msg="Argument \'%s\' enthält mehr als 2 Y-Achsen. Siehe plotKnxData.py -h für Hilfe. Achsen werden zusammengeführt."%arg
+                    logging.warn(msg)
+                    listOfYAxes=[','.join(listOfYAxes)]
+                YAxes=[]
+                for y in listOfYAxes:
                     listOfAdresses=[]
-                    listOfAdresses=arg.split(',')
+                    listOfAdresses=y.split(',')
                     dict={}
                     for adress in listOfAdresses:
                         if adress in sDestAdr.keys():
@@ -241,15 +254,17 @@ if __name__ == '__main__':
                         else:
                             raise InputError('Adresse %s wurde nicht gefunden!'%str(adress))
                     if bool(dict):
-                        subplots.append(dict)
+                        YAxes.append(dict)
+                subplots.append(YAxes)
         except:
             logging.error("Fehler einlesen der Parameter: %s"%','.join(args), sys.exc_info()[0])
             printHelp()
     else:
         printHelp()
         sys.exit()
-    # subplots=[dict_1, dict_2, ...]
-    # dict_1={'Destination Address': pd.DataFrame} -> DataFrame enthält nur die Zeilen, die mit Destination Address übereinstimmen.
+    # subplots = [sub_1, sub_2, ...]
+    # sub_1    = [dict_Y1, dict_Y2]
+    # dict_Y1  = {'Destination Address': pd.DataFrame, ...} -> DataFrame enthält nur die Zeilen, die mit Destination Address übereinstimmen.
 
     # Länge von names auf Länge von subplots anpassen
     if len(subplots) != len(names):
@@ -271,37 +286,54 @@ if __name__ == '__main__':
         fig.canvas.set_window_title(title)
         fig.suptitle(title)
     idx = len(subplots)*100+10+1
-    for i in range(0,len(subplots)):
+    for i in range(0,len(subplots)): #subplot
         axis=None
         if i==0:
             #Erster Subplot
             axis=fig.add_subplot(idx+i) #bsp. 211 = 2 Reihen, 1 Spalte, Index 1
         else:
             axis=fig.add_subplot(idx+i, sharex=fig.get_axes()[0])
-        #Konvertiere Telegram-Daten zu plot-barem Format und füge Daten zu Diagramm hinzu:
-        for addr,dfData in subplots[i].items():
-            #'Destination Name' ermitteln
-            destName=''
-            if not (dfData['Destination Name'].empty):
-                # '-' ausschließen. Keine Ahnung wo das herkommt.
-                filter=dfData['Destination Name'].isin(['-'])
-                destName=dfData[~filter]['Destination Name'].values[0]
-            #Konvertiere 'Time' vom string zu datetime
-            #dfData['Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
-            dfData.loc[:,'Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
-            #Daten entsprechend Datentyp konvertieren:
-            dpt=dfData['DPT'].values[0]
-            dpt = re.search(r'[0-9]+\.[0-9]{3}',dpt).group(0)
-            dfData.loc[:,'Values'] = dfData['Info'].apply(convertDPT(dpt))
-            #Label anpassen: 0/0/0 Adressenbezeichnung [Einheit]
-            unit=convertDPT(dpt,returnUnit=True)
-            label=str(addr)+' '+destName
-            if bool(unit):
-                label=label+' [%s]'%unit
-            #Plot erstellen
-            dfData.plot(x='Time', y='Values', ax=axis, label=label)
-            dateFmt = mdates.DateFormatter('%Y-%m-%d %H:%M:%S')
-            axis.xaxis.set_major_formatter(dateFmt)
+
+        if(len(subplots[i])>1):
+            axis2=axis.twinx()
+        else:
+            axis2=None
+        for j in range(0,len(subplots[i])): #y-Achse
+            if(j>0):
+                axis2._get_lines.prop_cycler = axis._get_lines.prop_cycler
+            #Konvertiere Telegram-Daten zu plot-barem Format und füge Daten zu Diagramm hinzu:
+            for addr,dfData in subplots[i][j].items(): #Datensatz
+                #'Destination Name' ermitteln
+                destName=''
+                if not (dfData['Destination Name'].empty):
+                    # '-' ausschließen. Keine Ahnung wo das herkommt.
+                    filter=dfData['Destination Name'].isin(['-'])
+                    destName=dfData[~filter]['Destination Name'].values[0]
+                #Konvertiere 'Time' vom string zu datetime
+                #dfData['Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
+                dfData.loc[:,'Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
+                #Daten entsprechend Datentyp konvertieren:
+                dpt=dfData['DPT'].values[0]
+                dpt = re.search(r'[0-9]+\.[0-9]{3}',dpt).group(0)
+                dfData.loc[:,'Values'] = dfData['Info'].apply(convertDPT(dpt))
+                #Label anpassen: 0/0/0 Adressenbezeichnung [Einheit]
+                unit=convertDPT(dpt,returnUnit=True)
+                label=str(addr)+' '+destName
+                if bool(unit):
+                    label=label+' [%s]'%unit
+                if(j==0):
+                    #Plot erstellen
+                    dfData.plot(x='Time', y='Values', ax=axis, label=label)
+                else:
+                    dfData.plot(x='Time', y='Values', ax=axis2, label=label)
+        if(len(subplots[i])>1):
+            #Legenden zusammenführen
+            lines, labels = axis.get_legend_handles_labels()
+            lines2, labels2 = axis2.get_legend_handles_labels()
+            axis2.legend(lines + lines2, labels + labels2)
+            axis.get_legend().remove()
+        dateFmt = mdates.DateFormatter('%Y-%m-%d %H:%M:%S')
+        axis.xaxis.set_major_formatter(dateFmt)
         axis.set_title(names[i])
         axis.grid(True)
     #fig.tight_layout()
