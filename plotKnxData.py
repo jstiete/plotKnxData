@@ -152,6 +152,28 @@ def dptTest():
             logging.error(sys.exc_info()[0])
             pass
 
+def getLanguage(columnNames):
+    '''Vergleicht den Namen der Spalte Zeit aus der eingelesen Datei mit den vorhandenen Definitionen der Spaltennamen
+    Rückgabe eines dict, welches die Spaltenbezeichnungen in der korrekten Sprache enthält'''
+    en={"lang":"en","#":"#","Time":"Time","Service":"Service","Flags":"Flags","Prio":"Prio",\
+        "Source Address":"Source Address","Source Name":"Source Name","Destination Address":"Destination Address",\
+        "Destination Name":"Destination Name","Rout":"Rout","Type":"Type","DPT":"DPT","Info":"Info","Iack":"Iack"}
+    ger={"lang":"de","#":"#","Time":"Zeit","Service":"Dienst","Flags":"Flags","Prio":"Prio",\
+     "Source Address":"Quelladresse","Source Name":"Quellname","Destination Address":"Zieladresse",\
+     "Destination Name":"Zielname","Rout":"Rout","Type":"Typ","DPT":"DPT","Info":"Info","Iack":"Iack"}
+    languages=[en,ger]
+    time=[]
+    #Liste mit Werten für "Time" erzeugen
+    for lang in languages:
+        time.append(lang["Time"])
+    #Finde erstes Auftreten von Time in Spaltennamen
+    try:
+        match=[i for i, item in enumerate(time) if item in set(columnNames)]
+        idx=match[0]
+        logging.info('Gefundenen Sprache:%s'%languages[idx]["lang"])
+    except:
+        logging.error('Sprache nicht erkannt! ', sys.exc_info()[0])
+    return languages[idx]
 
 ####################################################################################
 ###                           Main Schleife                                      ###
@@ -205,7 +227,8 @@ if __name__ == '__main__':
         raise
     # Menge der Daten berechnen:
     columnNames = df.columns.values
-    anzRow=len(df[['#']])
+    lang=getLanguage(columnNames)
+    anzRow=len(df[[lang['#']]])
     logging.info("Datensatz eingelesen. %d Zeilen:\n%s"%(anzRow,df.head()))
 
     #Nur Zeilen mit Typ=GroupValueWrite verwenden.
@@ -213,13 +236,13 @@ if __name__ == '__main__':
     #HowTo: Filter in Pandas anwenden:
     #https://www.delftstack.com/de/howto/python-pandas/how-to-filter-dataframe-rows-based-on-column-values-in-pandas/
     #https://www.geeksforgeeks.org/python-pandas-dataframe-isin/
-    filter=df['Type'].isin(['GroupValueWrite']) # Liste kann beliebig viele Werte enthalten (or condition)
+    filter=df[lang['Type']].isin(['GroupValueWrite']) # Liste kann beliebig viele Werte enthalten (or condition)
     df = df[filter]                             # Verknüpfung von Filtern: df=df[filter1 & filter2]
 
     ######################################################################
     ## Liste mit alle Gruppenadressen und deren Häufigkeit erstellen.
-    destAdr=df[['Destination Address']].copy()
-    sDestAdr=destAdr['Destination Address'].value_counts()
+    destAdr=df[[lang['Destination Address']]].copy()
+    sDestAdr=destAdr[lang['Destination Address']].value_counts()
     sDestAdr.sort_index(ascending=True, inplace=True)
     logging.debug("Gruppenadressen und Anzahl der Telegramme:",sDestAdr.head())
 
@@ -249,7 +272,7 @@ if __name__ == '__main__':
                     for adress in listOfAdresses:
                         if adress in sDestAdr.keys():
                             logging.info('Address %s: found %d entries.'%(adress,sDestAdr[adress]))
-                            filter=df['Destination Address'].isin([adress])
+                            filter=df[lang['Destination Address']].isin([adress])
                             dict[adress]=df[filter]
                         else:
                             raise InputError('Adresse %s wurde nicht gefunden!'%str(adress))
@@ -305,17 +328,17 @@ if __name__ == '__main__':
             for addr,dfData in subplots[i][j].items(): #Datensatz
                 #'Destination Name' ermitteln
                 destName=''
-                if not (dfData['Destination Name'].empty):
+                if not (dfData[lang['Destination Name']].empty):
                     # '-' ausschließen. Keine Ahnung wo das herkommt.
-                    filter=dfData['Destination Name'].isin(['-'])
-                    destName=dfData[~filter]['Destination Name'].values[0]
+                    filter=dfData[lang['Destination Name']].isin(['-'])
+                    destName=dfData[~filter][lang['Destination Name']].values[0]
                 #Konvertiere 'Time' vom string zu datetime
                 #dfData['Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
-                dfData.loc[:,'Time']=pd.to_datetime(dfData['Time'],format="%d.%m.%YÂ %H:%M:%S,%f")
+                dfData.loc[:,lang['Time']]=pd.to_datetime(dfData[lang['Time']],format="%d.%m.%YÂ %H:%M:%S,%f")
                 #Daten entsprechend Datentyp konvertieren:
-                dpt=dfData['DPT'].values[0]
+                dpt=dfData[lang['DPT']].values[0]
                 dpt = re.search(r'[0-9]+\.[0-9]{3}',dpt).group(0)
-                dfData.loc[:,'Values'] = dfData['Info'].apply(convertDPT(dpt))
+                dfData.loc[:,'Values'] = dfData[lang['Info']].apply(convertDPT(dpt))
                 #Label anpassen: 0/0/0 Adressenbezeichnung [Einheit]
                 unit=convertDPT(dpt,returnUnit=True)
                 label=str(addr)+' '+destName
@@ -323,9 +346,9 @@ if __name__ == '__main__':
                     label=label+' [%s]'%unit
                 if(j==0):
                     #Plot erstellen
-                    dfData.plot(x='Time', y='Values', ax=axis, label=label)
+                    dfData.plot(x=lang['Time'], y='Values', ax=axis, label=label)
                 else:
-                    dfData.plot(x='Time', y='Values', ax=axis2, label=label)
+                    dfData.plot(x=lang['Time'], y='Values', ax=axis2, label=label)
         if(len(subplots[i])>1):
             #Legenden zusammenführen
             lines, labels = axis.get_legend_handles_labels()
